@@ -9,7 +9,30 @@ from collections import deque
 if "history" not in st.session_state:
     st.session_state.history = deque(maxlen=2000)
 
+from pathlib import Path
 
+LOG_DIR = Path("mqtt_logs")
+LOG_DIR.mkdir(exist_ok=True)
+
+
+def get_daily_file(device_id):
+    date_str = pd.Timestamp.now(tz="Asia/Kolkata").strftime("%Y-%m-%d")
+    return LOG_DIR / f"{device_id}_{date_str}.csv"
+
+
+def append_row_to_csv(row_dict, device_id):
+    file_path = get_daily_file(device_id)
+
+    df = pd.DataFrame([row_dict])
+
+    file_exists = file_path.exists()
+
+    df.to_csv(
+        file_path,
+        mode="a",
+        header=not file_exists,
+        index=False
+    )
 # ------------------------------------------------------------------------------
 # Streamlit Config
 # ------------------------------------------------------------------------------
@@ -30,8 +53,7 @@ DEFAULTS = {
     "broker": "ecozen.ai",
     "port": 1883,
     "registers": None,
-    "latest_data": None,
-    "history": []   # <-- parsed message history
+    "latest_data": None
 }
 
 for key, value in DEFAULTS.items():
@@ -144,6 +166,7 @@ with col1:
             resp = requests.get(f"{BACKEND_BASE_URL}/latest", timeout=5)
             if resp.status_code == 200:
                 st.session_state.latest_data = resp.json()
+                latest = st.session_state.latest_data
             else:
                 st.error(f"Backend error {resp.status_code}: {resp.text}")
         except Exception as e:
@@ -155,6 +178,7 @@ if auto_refresh:
         resp = requests.get(f"{BACKEND_BASE_URL}/latest", timeout=5)
         if resp.status_code == 200:
             st.session_state.latest_data = resp.json()
+            latest = st.session_state.latest_data
         else:
             st.error(f"Backend error {resp.status_code}: {resp.text}")
     except Exception as e:
@@ -162,7 +186,10 @@ if auto_refresh:
 
 with col2:
     latest = st.session_state.latest_data
-
+    if latest:
+        device_id = latest.get("device_id") or st.session_state.device_id
+        raw_message = latest.get("raw")
+    
     if latest:
         st.subheader("📦 Latest Raw Packet")
         st.code(latest.get("raw") or "No data yet")
@@ -179,10 +206,16 @@ with col2:
             df_transposed = df_reduced.set_index("Short name").T
 
             # Create IST timestamp
-            timestamp_ist = (
-                pd.Timestamp.utcnow()
-                .tz_convert("Asia/Kolkata")
-            )
+            timestamp_ist = pd.Timestamp.now(tz="Asia/Kolkata")
+
+            parsed_json = json.dumps(parsed_rows, default=str)
+
+            log_row = {
+                "timestamp_ist": timestamp_ist.isoformat(),
+                "device_id": device_id,
+                "raw_message": raw_message,
+                "parsed_json": parsed_json
+            }
 
             # Insert timestamp as first column
             df_transposed.insert(0, "timestamp", timestamp_ist)
@@ -191,11 +224,18 @@ with col2:
             st.dataframe(df_transposed)
 
             # Add to history if new
-            if not st.session_state.history:
+            # Strong dedup using raw message
+            if "last_raw" not in st.session_state:
+                st.session_state.last_raw = None
+            
+            is_new = raw_message and raw_message != st.session_state.last_raw
+            
+            if is_new:
+                st.session_state.last_raw = raw_message
                 st.session_state.history.append(df_transposed)
-            else:
-                if not df_transposed.equals(st.session_state.history[-1]):
-                    st.session_state.history.append(df_transposed)
+            
+                # ✅ Persist to CSV
+                append_row_to_csv(log_row, device_id)
 
         else:
             st.info("No parsed data yet – waiting for MQTT messages.")
@@ -252,4 +292,19 @@ if st.session_state.history:
 else:
     st.info("No history available yet.")
 
+st.markdown("---")
+st.subheader("📥 Download Logs")
 
+device_id = st.session_state.device_id
+daily_file = get_daily_file(device_id)
+
+if daily_file.exists():
+    with open(daily_file, "rb") as f:
+        st.download_button(
+            label="⬇️ Download Today's CSV",
+            data=f,
+            file_name=daily_file.name,
+            mime="text/csv"
+        )
+else:
+    st.info("No logs available yet for today.")
