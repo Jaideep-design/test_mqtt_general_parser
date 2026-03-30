@@ -3,13 +3,7 @@ import time
 from typing import Any, Dict
 
 latest_data_lock = threading.Lock()
-latest_data: Dict[str, Any] = {
-    "raw": None,
-    "parsed": None,
-    "device_id": None,
-    "topic": None,
-    "last_updated": None,
-}
+latest_data: Dict[str, Any] = {}
 
 def update_latest(raw: str, parsed_rows, device_id: str, topic: str):
     """Update the globally shared latest data."""
