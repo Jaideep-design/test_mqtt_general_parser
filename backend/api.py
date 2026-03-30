@@ -4,8 +4,8 @@ import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from backend.shared_state import get_latest_data
-from backend.mqtt_worker import configure_and_start_mqtt
+from .shared_state import get_latest_data
+from .mqtt_worker import configure_and_start_mqtt
 
 
 print("🔎 Listing project root:")
