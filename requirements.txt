@@ -1,0 +1,10 @@
+streamlit>=1.28.0
+streamlit_autorefresh
+pandas
+openpyxl
+jsonschema
+paho-mqtt
+fastapi
+uvicorn[standard]
+requests
+python-dotenv
